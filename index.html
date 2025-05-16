@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>BeatLab Step Sequencer + Live Pads</title>
+  <style>
+    body {
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      padding: 1rem;
+      text-align: center;
+    }
+    h1 { margin-bottom: 0.5rem; }
+    .controls {
+      margin: 1rem 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 100px repeat(16, 40px);
+      gap: 4px;
+      margin-bottom: 1rem;
+    }
+    .track-label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #222;
+      border: 1px solid #444;
+      padding: 0.5rem;
+      height: 40px;
+      font-size: 0.8rem;
+      position: relative;
+    }
+    .pad-label {
+      font-size: 0.7rem;
+      color: #aaa;
+      margin-top: 2px;
+    }
+    .step {
+      width: 40px;
+      height: 40px;
+      border: 1px solid #444;
+      background: #222;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      color: #ccc;
+    }
+    .step.active { background: #4caf50; color: #fff; }
+    .step.playing { outline: 2px solid yellow; }
+    input[type="file"] {
+      display: none;
+    }
+    .pad-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 2rem;
+    }
+    .pad {
+      background: #222;
+      border: 2px solid #555;
+      border-radius: 10px;
+      height: 100px;
+      font-size: 1.5rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .pad.active {
+      background: #4caf50;
+    }
+    .pad.drag-over {
+      background: #007acc;
+      border-color: #00bfff;
+    }
+  </style>
+</head>
+<body>
+<h1>🥁 BeatLab: Step Sequencer + Live Pads</h1>
+<div class="controls">
+  <button id="playBtn">▶ Play</button>
+  <label for="bpm">BPM:</label>
+  <input type="number" id="bpm" value="120" min="60" max="200" style="width:60px">
+  <button id="metronomeToggle">🎼 Metronome</button>
+</div>
+
+<h2>Live Pads (QWE / ASD)</h2>
+<div class="pad-grid">
+  <div class="pad" data-key="81">Q<div class="pad-label">drop</div></div>
+  <div class="pad" data-key="87">W<div class="pad-label">drop</div></div>
+  <div class="pad" data-key="69">E<div class="pad-label">drop</div></div>
+  <div class="pad" data-key="65">A<div class="pad-label">drop</div></div>
+  <div class="pad" data-key="83">S<div class="pad-label">drop</div></div>
+  <div class="pad" data-key="68">D<div class="pad-label">drop</div></div>
+</div>
+
+<h2>Step Sequencer</h2>
+<div id="sequencer"></div>
+<audio id="metronomeTick" src="https://freesound.org/data/previews/21/21399_7037-lq.mp3"></audio>
+
+<script>
+const numTracks = 6;
+const numSteps = 16;
+const livePads = {};
+const stepSounds = Array(numTracks).fill(null);
+const steps = Array.from({ length: numTracks }, () => Array(numSteps).fill(false));
+let currentStep = 0;
+let isPlaying = false;
+let isMetronomeOn = false;
+let interval;
+let metronomeInterval;
+
+const sequencer = document.getElementById('sequencer');
+const metronome = document.getElementById('metronomeTick');
+
+function createSequencerUI() {
+  for (let t = 0; t < numTracks; t++) {
+    const row = document.createElement('div');
+    row.className = 'grid';
+
+    const label = document.createElement('div');
+    label.className = 'track-label';
+    label.innerHTML = `Track ${t + 1}`;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.wav,.mp3';
+    input.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          stepSounds[t] = new Audio(reader.result);
+          label.querySelector('.pad-label').textContent = file.name.slice(0, 12);
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    const padLabel = document.createElement('div');
+    padLabel.className = 'pad-label';
+    padLabel.textContent = 'Drop sound';
+    label.appendChild(padLabel);
+    label.addEventListener('click', () => input.click());
+    label.appendChild(input);
+    row.appendChild(label);
+
+    for (let s = 0; s < numSteps; s++) {
+      const step = document.createElement('div');
+      step.className = 'step';
+      step.textContent = s + 1;
+      step.addEventListener('click', () => {
+        steps[t][s] = !steps[t][s];
+        step.classList.toggle('active');
+      });
+      row.appendChild(step);
+    }
+
+    sequencer.appendChild(row);
+  }
+}
+
+function playStep() {
+  if (isMetronomeOn) {
+    metronome.currentTime = 0;
+    metronome.play();
+  }
+
+  for (let t = 0; t < numTracks; t++) {
+    const row = sequencer.children[t];
+    const stepDivs = row.querySelectorAll('.step');
+    stepDivs.forEach(div => div.classList.remove('playing'));
+
+    if (steps[t][currentStep] && stepSounds[t]) {
+      stepSounds[t].currentTime = 0;
+      stepSounds[t].play();
+    }
+    stepDivs[currentStep].classList.add('playing');
+  }
+  currentStep = (currentStep + 1) % numSteps;
+}
+
+function startSequencer() {
+  const bpm = parseInt(document.getElementById('bpm').value);
+  const intervalTime = 60000 / bpm / 4;
+  interval = setInterval(playStep, intervalTime);
+  isPlaying = true;
+  document.getElementById('playBtn').textContent = '⏹ Stop';
+}
+
+function stopSequencer() {
+  clearInterval(interval);
+  isPlaying = false;
+  currentStep = 0;
+  document.getElementById('playBtn').textContent = '▶ Play';
+}
+
+document.getElementById('playBtn').addEventListener('click', () => {
+  isPlaying ? stopSequencer() : startSequencer();
+});
+
+document.getElementById('metronomeToggle').addEventListener('click', () => {
+  isMetronomeOn = !isMetronomeOn;
+  const bpm = parseInt(document.getElementById('bpm').value);
+  const intervalTime = 60000 / bpm;
+
+  if (isMetronomeOn && !isPlaying) {
+    metronomeInterval = setInterval(() => {
+      metronome.currentTime = 0;
+      metronome.play();
+    }, intervalTime);
+  } else {
+    clearInterval(metronomeInterval);
+  }
+});
+
+createSequencerUI();
+
+const padElems = document.querySelectorAll('.pad');
+
+padElems.forEach(pad => {
+  const keyCode = pad.getAttribute('data-key');
+
+  pad.addEventListener('click', () => {
+    if (livePads[keyCode]) {
+      livePads[keyCode].currentTime = 0;
+      livePads[keyCode].play();
+      pad.classList.add('active');
+      setTimeout(() => pad.classList.remove('active'), 100);
+    }
+  });
+
+  pad.addEventListener('dragover', e => {
+    e.preventDefault();
+    pad.classList.add('drag-over');
+  });
+
+  pad.addEventListener('dragleave', () => {
+    pad.classList.remove('drag-over');
+  });
+
+  pad.addEventListener('drop', e => {
+    e.preventDefault();
+    pad.classList.remove('drag-over');
+
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    const validTypes = ['audio/wav', 'audio/mp3', 'audio/mpeg'];
+    if (!validTypes.includes(file.type)) {
+      alert("Загрузите WAV или MP3 файл");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const audio = new Audio(reader.result);
+      livePads[keyCode] = audio;
+      pad.querySelector('.pad-label').textContent = file.name.slice(0, 10);
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
+document.addEventListener('keydown', e => {
+  const keyCode = e.keyCode.toString();
+  const pad = document.querySelector(`.pad[data-key="${keyCode}"]`);
+  if (pad && livePads[keyCode]) {
+    livePads[keyCode].currentTime = 0;
+    livePads[keyCode].play();
+    pad.classList.add('active');
+    setTimeout(() => pad.classList.remove('active'), 100);
+  }
+});
+</script>
+</body>
+</html>
