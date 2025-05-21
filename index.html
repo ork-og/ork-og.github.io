@@ -88,9 +88,11 @@
 <h1>🥁 BeatLab: Step Sequencer + Live Pads</h1>
 <div class="controls">
   <button id="playBtn">▶ Play</button>
+  <button id="exportWav">💾 Export to WAV</button>
+
   <label for="bpm">BPM:</label>
   <input type="number" id="bpm" value="120" min="60" max="200" style="width:60px">
-  <button id="metronomeToggle">🎼 Metronome</button>
+<button id="metronomeToggle">🎼 Metronome</button>
 </div>
 
 <h2>Live Pads (QWE / ASD)</h2>
@@ -224,6 +226,75 @@ document.getElementById('metronomeToggle').addEventListener('click', () => {
 });
 
 createSequencerUI();
+document.getElementById('exportWav').addEventListener('click', async () => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  const context = new AudioContext();
+  const duration = (60000 / parseInt(document.getElementById('bpm').value) / 4) * numSteps;
+  const sampleRate = context.sampleRate;
+  const offlineContext = new OfflineAudioContext(1, sampleRate * duration / 1000, sampleRate);
+
+  const mergedBuffer = offlineContext.createBuffer(1, offlineContext.length, sampleRate);
+  const output = mergedBuffer.getChannelData(0);
+
+  for (let t = 0; t < numTracks; t++) {
+    if (!stepSounds[t]) continue;
+    const audio = await fetch(stepSounds[t].src).then(r => r.arrayBuffer());
+    const decoded = await context.decodeAudioData(audio);
+    for (let s = 0; s < numSteps; s++) {
+      if (!steps[t][s]) continue;
+      const start = Math.floor((s * duration / numSteps / 1000) * sampleRate);
+      for (let i = 0; i < decoded.length && start + i < output.length; i++) {
+        output[start + i] += decoded.getChannelData(0)[i];
+      }
+    }
+  }
+
+  const recordedBuffer = offlineContext.createBuffer(1, output.length, sampleRate);
+  recordedBuffer.copyToChannel(output, 0);
+
+  const blob = bufferToWavBlob(recordedBuffer);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'beatlab_pattern.wav';
+  a.click();
+});
+
+function bufferToWavBlob(buffer) {
+  const length = buffer.length;
+  const sampleRate = buffer.sampleRate;
+  const wavBuffer = new ArrayBuffer(44 + length * 2);
+  const view = new DataView(wavBuffer);
+  const channelData = buffer.getChannelData(0);
+  let offset = 0;
+
+  function writeString(str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    offset += str.length;
+  }
+
+  writeString('RIFF');
+  view.setUint32(offset, 36 + length * 2, true); offset += 4;
+  writeString('WAVE');
+  writeString('fmt ');
+  view.setUint32(offset, 16, true); offset += 4;
+  view.setUint16(offset, 1, true); offset += 2;
+  view.setUint16(offset, 1, true); offset += 2;
+  view.setUint32(offset, sampleRate, true); offset += 4;
+  view.setUint32(offset, sampleRate * 2, true); offset += 4;
+  view.setUint16(offset, 2, true); offset += 2;
+  view.setUint16(offset, 16, true); offset += 2;
+  writeString('data');
+  view.setUint32(offset, length * 2, true); offset += 4;
+
+  for (let i = 0; i < length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, channelData[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return new Blob([view], { type: 'audio/wav' });
+}
+
 
 const padElems = document.querySelectorAll('.pad');
 
