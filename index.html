@@ -17,7 +17,6 @@
     }
     .grid {
       display: grid;
-      grid-template-columns: 100px repeat(16, 40px);
       gap: 4px;
       margin-bottom: 1rem;
     }
@@ -92,7 +91,15 @@
 
   <label for="bpm">BPM:</label>
   <input type="number" id="bpm" value="120" min="60" max="200" style="width:60px">
-<button id="metronomeToggle">🎼 Metronome</button>
+
+  <label for="stepLength">Steps:</label>
+  <select id="stepLength">
+    <option value="16" selected>16</option>
+    <option value="32">32</option>
+    <option value="64">64</option>
+  </select>
+
+  <button id="metronomeToggle">🎼 Metronome</button>
 </div>
 
 <h2>Live Pads (QWE / ASD)</h2>
@@ -111,10 +118,10 @@
 
 <script>
 const numTracks = 6;
-const numSteps = 16;
+let numSteps = 16;
 const livePads = {};
 const stepSounds = Array(numTracks).fill(null);
-const steps = Array.from({ length: numTracks }, () => Array(numSteps).fill(false));
+let steps = [];
 let currentStep = 0;
 let isPlaying = false;
 let isMetronomeOn = false;
@@ -125,9 +132,13 @@ const sequencer = document.getElementById('sequencer');
 const metronome = document.getElementById('metronomeTick');
 
 function createSequencerUI() {
+  sequencer.innerHTML = '';
+  steps.length = 0;
+
   for (let t = 0; t < numTracks; t++) {
     const row = document.createElement('div');
     row.className = 'grid';
+    row.style.gridTemplateColumns = `100px repeat(${numSteps}, 40px)`;
 
     const label = document.createElement('div');
     label.className = 'track-label';
@@ -152,9 +163,11 @@ function createSequencerUI() {
     padLabel.className = 'pad-label';
     padLabel.textContent = 'Drop sound';
     label.appendChild(padLabel);
-    label.addEventListener('click', () => input.click());
     label.appendChild(input);
+    label.addEventListener('click', () => input.click());
     row.appendChild(label);
+
+    steps[t] = [];
 
     for (let s = 0; s < numSteps; s++) {
       const step = document.createElement('div');
@@ -164,6 +177,7 @@ function createSequencerUI() {
         steps[t][s] = !steps[t][s];
         step.classList.toggle('active');
       });
+      steps[t][s] = false;
       row.appendChild(step);
     }
 
@@ -186,7 +200,9 @@ function playStep() {
       stepSounds[t].currentTime = 0;
       stepSounds[t].play();
     }
-    stepDivs[currentStep].classList.add('playing');
+    if (stepDivs[currentStep]) {
+      stepDivs[currentStep].classList.add('playing');
+    }
   }
   currentStep = (currentStep + 1) % numSteps;
 }
@@ -225,7 +241,14 @@ document.getElementById('metronomeToggle').addEventListener('click', () => {
   }
 });
 
+document.getElementById('stepLength').addEventListener('change', e => {
+  numSteps = parseInt(e.target.value);
+  currentStep = 0;
+  createSequencerUI();
+});
+
 createSequencerUI();
+
 document.getElementById('exportWav').addEventListener('click', async () => {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   const context = new AudioContext();
@@ -295,10 +318,7 @@ function bufferToWavBlob(buffer) {
   return new Blob([view], { type: 'audio/wav' });
 }
 
-
-const padElems = document.querySelectorAll('.pad');
-
-padElems.forEach(pad => {
+document.querySelectorAll('.pad').forEach(pad => {
   const keyCode = pad.getAttribute('data-key');
 
   pad.addEventListener('click', () => {
